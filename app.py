@@ -1,36 +1,40 @@
 import streamlit as st
 import yt_dlp
+import requests
+from io import BytesIO
 
-st.set_page_config(page_title="Quick Video Downloader", page_icon="🎬")
+st.set_page_config(page_title="Direct Video Downloader", page_icon="💾")
 
-st.title("🎬 動画リンク抽出ツール")
-st.write("URLを貼り付けると、動画を再生・保存できるリンクを表示します。")
+st.title("💾 直接保存ツール")
 
-# URL入力欄
-url = st.text_input("動画のURLを入力（X, YouTube, TikTokなど）:", placeholder="https://...")
+url = st.text_input("動画URLを入力:", placeholder="https://...")
 
 if url:
-    with st.spinner('動画を解析中...'):
+    with st.spinner('解析中...（少し時間がかかります）'):
         try:
-            # yt-dlpの設定（動画のメタデータだけを取得）
-            ydl_opts = {'format': 'best'}
+            # 動画の直URLを取得
+            ydl_opts = {'format': 'best', 'quiet': True}
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
-                video_url = info.get('url', None)
-                title = info.get('title', '無題の動画')
+                video_direct_url = info.get('url')
+                title = info.get('title', 'video').replace("/", "_") # ファイル名エラー防止
 
-            if video_url:
-                st.success(f"解析完了: {title}")
-                
+            if video_direct_url:
+                # 動画データをメモリに読み込む
+                response = requests.get(video_direct_url, stream=True)
+                video_bytes = BytesIO(response.content)
+
                 # プレビュー表示
-                st.video(video_url)
-                
-                # 直接ダウンロードリンク
-                st.markdown(f'[👉 ここを右クリックして保存]({video_url})')
-            else:
-                st.error("動画のURLを取得できませんでした。")
-        except Exception as e:
-            st.error(f"エラーが発生しました: {e}")
+                st.video(video_bytes)
 
-st.divider()
-st.caption("Powered by yt-dlp & Streamlit")
+                # ★ここが重要！直接ダウンロードさせるボタン
+                st.download_button(
+                    label="📥 動画ファイルを保存する",
+                    data=video_bytes,
+                    file_name=f"{title}.mp4",
+                    mime="video/mp4"
+                )
+                st.success("準備完了！上のボタンを押して保存してね。")
+        
+        except Exception as e:
+            st.error(f"エラー: {e}")
