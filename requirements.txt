@@ -1,2 +1,3 @@
 streamlit
-yt-dlp
+yt_dlp
+requests
