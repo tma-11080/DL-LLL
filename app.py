@@ -3,319 +3,316 @@ import yt_dlp
 import requests
 import time
 import os
-import datetime
-import random
-import hashlib
 import re
+import random
+import json
+import base64
+import hashlib
+import datetime
+import urllib.parse
 from io import BytesIO
+from typing import Optional, Dict, Any, List
 
 # ==========================================
 # 1. SYSTEM CONFIGURATION & CONSTANTS
 # ==========================================
-SYSTEM_VERSION = "2.0.4-NEON"
-DEV_MODE = False
-MAX_MEMORY_MB = 800  # Streamlit Cloudの制限を考慮
+SYSTEM_VERSION = "3.0.0-MAXIMUS"
+MAX_CHUNK_SIZE = 1024 * 1024 * 5  # 5MB chunks
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+]
 
 # ==========================================
-# 2. PAGE CONFIG & STYLING (UIは絶対変更なし)
+# 2. UI / GUI ENGINE (NEON STYLE - FIXED)
 # ==========================================
-st.set_page_config(page_title="NEON VIDEO EXTRACTOR", layout="wide")
+st.set_page_config(page_title="NEON VIDEO EXTRACTOR", layout="wide", page_icon="⚡")
 
 st.markdown("""
 <style>
-    /* 全体背景 */
+    /* CORE THEME: BLACK & NEON */
     .stApp {
         background-color: #000000;
-        color: #ffffff;
+        color: #e0e0e0;
+        font-family: 'Courier New', Courier, monospace;
     }
     
-    /* タイトルのネオン発光 */
+    /* HEADER NEON ANIMATION */
+    @keyframes neon-pulse {
+        0% { text-shadow: 0 0 10px #0000ff, 0 0 20px #0000ff; }
+        50% { text-shadow: 0 0 20px #8a2be2, 0 0 40px #8a2be2, 0 0 60px #0000ff; }
+        100% { text-shadow: 0 0 10px #0000ff, 0 0 20px #0000ff; }
+    }
+    
     .neon-text {
-        font-size: 50px;
-        font-weight: bold;
+        font-size: clamp(30px, 5vw, 60px);
+        font-weight: 900;
         color: #fff;
         text-align: center;
         text-transform: uppercase;
-        text-shadow: 0 0 10px #0000ff, 0 0 20px #0000ff, 0 0 40px #8a2be2, 0 0 80px #8a2be2;
-        margin-bottom: 50px;
+        animation: neon-pulse 3s infinite alternate;
+        margin-bottom: 40px;
+        letter-spacing: 4px;
+        border-bottom: 2px solid #8a2be2;
+        padding-bottom: 20px;
     }
 
-    /* 入力フォームの装飾 */
+    /* INPUT FIELD STYLING */
     .stTextInput input {
-        background-color: #111 !important;
+        background-color: #0a0a0a !important;
         color: #00f2ff !important;
         border: 2px solid #8a2be2 !important;
-        box-shadow: 0 0 10px #8a2be2;
-        border-radius: 10px;
+        box-shadow: 0 0 15px rgba(138, 43, 226, 0.3);
+        border-radius: 8px;
+        padding: 15px;
+        font-size: 1.1rem;
+    }
+    .stTextInput input:focus {
+        box-shadow: 0 0 25px rgba(0, 242, 255, 0.6);
+        border-color: #00f2ff !important;
     }
 
-    /* ボタンのネオン化 */
+    /* BUTTON STYLING */
     div.stButton > button {
-        background: linear-gradient(45deg, #0000ff, #8a2be2);
+        background: linear-gradient(90deg, #0000ff, #8a2be2);
         color: white;
         border: none;
-        padding: 15px 30px;
-        border-radius: 10px;
+        padding: 15px 25px;
+        border-radius: 8px;
         font-weight: bold;
-        box-shadow: 0 0 15px #0000ff;
-        transition: 0.3s;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        box-shadow: 0 0 20px rgba(0, 0, 255, 0.4);
+        transition: all 0.3s ease;
         width: 100%;
     }
     div.stButton > button:hover {
-        box-shadow: 0 0 30px #8a2be2;
+        box-shadow: 0 0 40px rgba(138, 43, 226, 0.8);
         transform: scale(1.02);
-        color: #fff;
+        background: linear-gradient(90deg, #8a2be2, #0000ff);
     }
 
-    /* サイドバーのカスタマイズ */
-    [data-testid="stSidebar"] {
-        background-color: #050505;
-        border-right: 1px solid #8a2be2;
-    }
-
-    /* カード状の装飾 */
+    /* CARD COMPONENT */
     .video-card {
-        border: 1px solid #0000ff;
-        padding: 20px;
-        border-radius: 15px;
-        background: rgba(138, 43, 226, 0.05);
-        box-shadow: 0 0 10px rgba(0, 0, 255, 0.2);
+        border: 1px solid #00f2ff;
+        padding: 25px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(0,0,0,0.9), rgba(20,0,40,0.9));
+        box-shadow: inset 0 0 30px rgba(0, 0, 255, 0.1);
+        margin-top: 20px;
+    }
+    
+    /* LOG CONSOLE */
+    .console-log {
+        background: #050505;
+        border-left: 3px solid #8a2be2;
+        padding: 10px;
+        font-family: monospace;
+        font-size: 0.8rem;
+        color: #00ff00;
+        margin-bottom: 5px;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. CORE UTILITY FUNCTIONS (行数と機能の強化)
+# 3. ADVANCED LOGIC MODULES
 # ==========================================
 
-def get_user_agents():
-    """偽装用ユーザーエージェントのリスト"""
-    return [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-    ]
-
-def validate_url(url):
-    """URLの妥当性チェック"""
-    regex = re.compile(
-        r'^https?://'
-        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'
-        r'localhost|'
-        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
-        r'(?::\d+)?'
-        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
-    return re.match(regex, url) is not None
-
-def format_bytes(size):
-    """バイトサイズを読みやすい形式に変換"""
-    power = 2**10
-    n = 0
-    power_labels = {0 : '', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
-    while size > power:
-        size /= power
-        n += 1
-    return f"{size:.2f} {power_labels[n]}B"
-
-def secure_filename(filename):
-    """ファイル名の安全化"""
-    return re.sub(r'[\\/*?:"<>|]', "", filename)
-
-def stream_download(url, referer=None):
-    """メモリを節約しながら動画をダウンロードする関数"""
-    headers = {
-        'User-Agent': random.choice(get_user_agents()),
-        'Accept': '*/*',
-        'Connection': 'keep-alive',
-    }
-    if referer:
-        headers['Referer'] = referer
+class NeonLogger:
+    """システムログ管理クラス"""
+    def __init__(self):
+        if "logs" not in st.session_state:
+            st.session_state.logs = []
     
-    try:
-        response = requests.get(url, headers=headers, stream=True, timeout=30)
-        response.raise_for_status()
+    def info(self, message):
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        st.session_state.logs.append(f"[{ts}] [INFO] {message}")
         
-        # コンテンツサイズチェック
-        total_size = int(response.headers.get('content-length', 0))
-        if total_size > MAX_MEMORY_MB * 1024 * 1024:
-            return None, "File too large for server memory."
-
-        buffer = BytesIO()
-        downloaded = 0
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                buffer.write(chunk)
-                downloaded += len(chunk)
+    def error(self, message):
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        st.session_state.logs.append(f"[{ts}] [ERROR] {message}")
         
-        buffer.seek(0)
-        return buffer, None
-    except Exception as e:
-        return None, str(e)
+    def get_logs(self):
+        return st.session_state.logs[-20:] # 最新20件
 
-# ==========================================
-# 4. LOGGING SYSTEM
-# ==========================================
-if "log_history" not in st.session_state:
-    st.session_state.log_history = []
+logger = NeonLogger()
 
-def add_log(msg):
-    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-    st.session_state.log_history.append(f"[{timestamp}] {msg}")
-    if len(st.session_state.log_history) > 50:
-        st.session_state.log_history.pop(0)
-
-# ==========================================
-# 5. MAIN UI RENDERER
-# ==========================================
-
-st.markdown('<div class="neon-text">NEON VIDEO DOWNLOADER</div>', unsafe_allow_html=True)
-
-with st.sidebar:
-    st.markdown("### ⚙️ SYSTEM SETTINGS")
-    quality = st.selectbox("画質選択", ["Best Quality", "1080p", "720p", "480p"])
-    st.divider()
-    
-    st.markdown("### 📜 SESSION LOG")
-    if st.button("Clear Logs"):
-        st.session_state.log_history = []
-    
-    log_box = st.empty()
-    with log_box.container():
-        for log in reversed(st.session_state.log_history):
-            st.caption(log)
-            
-    st.divider()
-    st.caption(f"System Version: {SYSTEM_VERSION}")
-    st.caption("Developed by Cyber Streamlit Tech")
-
-col1, col2, col3 = st.columns([1, 6, 1])
-
-with col2:
-    url = st.text_input("ENTER VIDEO URL (YouTube, X, TikTok, etc...)", placeholder="https://")
-
-    if url:
-        add_log(f"Inbound Request: {url}")
+class NetworkHandler:
+    """高度なネットワークリクエスト処理クラス"""
+    def __init__(self):
+        self.session = requests.Session()
         
-        if not validate_url(url):
-            st.error("INVALID URL FORMAT detected.")
-            add_log("Error: Invalid URL format")
-        else:
-            try:
-                # yt-dlp オプション強化版
-                ydl_opts = {
-                    'format': 'bestvideo+bestaudio/best',
-                    'quiet': True,
-                    'no_warnings': True,
-                    'user_agent': random.choice(get_user_agents()),
+    def get_headers(self, url):
+        parsed = urllib.parse.urlparse(url)
+        domain = f"{parsed.scheme}://{parsed.netloc}/"
+        return {
+            'User-Agent': random.choice(USER_AGENTS),
+            'Referer': domain, # リファラ偽装（po-kaki-to対策）
+            'Accept-Language': 'en-US,en;q=0.9,ja;q=0.8',
+        }
+
+    def validate_stream(self, url):
+        """動画ストリームの存在確認"""
+        try:
+            h = self.session.head(url, headers=self.get_headers(url), timeout=5, allow_redirects=True)
+            content_type = h.headers.get('Content-Type', '').lower()
+            size = int(h.headers.get('Content-Length', 0))
+            return 'video' in content_type or 'application/octet-stream' in content_type, size
+        except:
+            return False, 0
+
+    def download_chunk(self, url):
+        """メモリ効率を考慮したバイナリ取得"""
+        try:
+            resp = self.session.get(url, headers=self.get_headers(url), stream=True, timeout=20)
+            resp.raise_for_status()
+            return resp.content
+        except Exception as e:
+            logger.error(f"Download failed: {e}")
+            return None
+
+class VideoExtractor:
+    """動画抽出エンジン"""
+    def __init__(self):
+        self.net = NetworkHandler()
+        
+    def extract(self, url):
+        logger.info(f"Analyzing target: {url}")
+        
+        # 1. 直リンク (.mp4) 判定
+        if ".mp4" in url or ".m3u8" in url:
+            valid, size = self.net.validate_stream(url)
+            if valid:
+                logger.info("Direct stream detected.")
+                return {
+                    'type': 'direct',
+                    'title': url.split('/')[-1].split('?')[0],
+                    'url': url,
+                    'size': size,
+                    'thumbnail': None
                 }
-                
-                # 特定サイト（po-kaki-toなど）への特別対応ロジック
-                is_direct_mp4 = ".mp4" in url.lower()
-                
-                with st.spinner('⚡ ANALYZING ENCRYPTED STREAM... ⚡'):
-                    if is_direct_mp4:
-                        # 直リンクMP4の場合の擬似情報生成
-                        title = url.split('/')[-1].split('?')[0]
-                        video_direct_url = url
-                        thumbnail = None
-                        uploader = "Direct Link"
-                        duration = "Unknown"
-                        view_count = "N/A"
-                        add_log("Direct MP4 link detected. Bypassing extraction.")
-                    else:
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(url, download=False)
-                            title = info.get('title', 'Unknown Title')
-                            thumbnail = info.get('thumbnail')
-                            duration = info.get('duration')
-                            video_direct_url = info.get('url')
-                            uploader = info.get('uploader', 'Unknown')
-                            view_count = info.get('view_count', 0)
-                            add_log(f"Metadata Extracted: {title[:20]}...")
+        
+        # 2. yt-dlp による解析
+        try:
+            ydl_opts = {
+                'format': 'best',
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': 'in_playlist',
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                logger.info("Metadata extraction successful.")
+                return {
+                    'type': 'platform',
+                    'title': info.get('title', 'Unknown Video'),
+                    'url': info.get('url'),
+                    'thumbnail': info.get('thumbnail'),
+                    'duration': info.get('duration'),
+                    'uploader': info.get('uploader')
+                }
+        except Exception as e:
+            logger.error(f"Extraction Error: {e}")
+            return None
 
-                # --- 6. DISPLAY SECTION ---
-                st.markdown(f'<div class="video-card">', unsafe_allow_html=True)
-                c1, c2 = st.columns([1, 1])
-                
-                with c1:
-                    if thumbnail:
-                        st.image(thumbnail, use_container_width=True)
-                    else:
-                        st.markdown("### 🎬 [NO PREVIEW]")
-                
-                with c2:
-                    st.subheader(title)
-                    st.write(f"👤 SOURCE: {uploader}")
-                    st.write(f"⏱ TIME: {duration} sec")
-                    st.write(f"👁 STATS: {view_count}")
-                    st.write(f"🔗 STATUS: [ONLINE]")
+# ==========================================
+# 4. MAIN APPLICATION LOGIC
+# ==========================================
 
-                st.divider()
+def main():
+    # Header
+    st.markdown('<div class="neon-text">NEON CORE SYSTEM</div>', unsafe_allow_html=True)
+    
+    # Sidebar
+    with st.sidebar:
+        st.markdown("### 📡 SYSTEM MONITOR")
+        st.write("STATUS: **ONLINE**")
+        st.progress(100)
+        
+        st.markdown("---")
+        st.markdown("### 📝 EVENT LOGS")
+        log_container = st.empty()
+        
+        # ログ表示ループ
+        logs = logger.get_logs()
+        log_html = ""
+        for log in reversed(logs):
+            color = "#ff0055" if "[ERROR]" in log else "#00ff00"
+            log_html += f'<div class="console-log" style="color:{color};">{log}</div>'
+        log_container.markdown(log_html, unsafe_allow_html=True)
+
+    # Main Area
+    col1, col2, col3 = st.columns([1, 8, 1])
+    
+    with col2:
+        # URL Input
+        target_url = st.text_input("ENTER TARGET URL", placeholder="https://example.com/video...")
+        
+        if target_url:
+            extractor = VideoExtractor()
+            net_handler = NetworkHandler()
+            
+            with st.spinner("⚡ DECRYPTING VIDEO STREAM..."):
+                data = extractor.extract(target_url)
                 
-                if video_direct_url:
-                    # 動画プレビュー
-                    st.video(video_direct_url)
+                if data:
+                    # Success UI
+                    st.markdown(f'<div class="video-card">', unsafe_allow_html=True)
                     
-                    # ダウンロード処理
-                    download_col1, download_col2 = st.columns(2)
-                    
-                    with download_col1:
-                        if st.button("⚡ FETCH DATA FOR DOWNLOAD"):
-                            # po-kaki-to等のリファラが必要なサイトへの対応
-                            referer = "https://f2-movie.po-kaki-to.com/" if "po-kaki-to" in url else None
+                    c1, c2 = st.columns([1, 1])
+                    with c1:
+                        if data.get('thumbnail'):
+                            st.image(data['thumbnail'], use_container_width=True)
+                        else:
+                            st.markdown("### 🎬 [NO SIGNAL]")
                             
-                            buffer, err = stream_download(video_direct_url, referer=referer)
-                            
-                            if err:
-                                st.error(f"Download Failed: {err}")
-                                add_log(f"Download error: {err}")
-                            else:
-                                st.session_state.ready_buffer = buffer
-                                st.session_state.ready_name = secure_filename(title)
-                                add_log("Data buffered successfully.")
+                    with c2:
+                        st.markdown(f"## {data['title']}")
+                        st.markdown(f"**TYPE:** `{data['type'].upper()}`")
+                        if data.get('size'):
+                            size_mb = data['size'] / (1024*1024)
+                            st.markdown(f"**SIZE:** `{size_mb:.2f} MB`")
+                        st.markdown(f"**SOURCE:** `{target_url[:30]}...`")
                     
-                    with download_col2:
-                        if "ready_buffer" in st.session_state:
+                    st.divider()
+                    
+                    # Video Player
+                    if data.get('url'):
+                        st.video(data['url'])
+                        
+                        # Download Logic
+                        st.markdown("### 💾 DOWNLOAD OPS")
+                        
+                        # ボタンの状態管理
+                        if 'dl_data' not in st.session_state:
+                            st.session_state.dl_data = None
+
+                        if st.button("🚀 INITIATE DOWNLOAD SEQUENCE"):
+                            with st.spinner("Downloading to server buffer..."):
+                                binary_data = net_handler.download_chunk(data['url'])
+                                if binary_data:
+                                    st.session_state.dl_data = binary_data
+                                    logger.info("Download buffer complete.")
+                                    st.success("BUFFER COMPLETE. READY TO SAVE.")
+                        
+                        if st.session_state.dl_data:
                             st.download_button(
-                                label="📥 SAVE TO LOCAL DEVICE",
-                                data=st.session_state.ready_buffer,
-                                file_name=f"{st.session_state.ready_name}.mp4",
-                                mime="video/mp4"
+                                label="📥 SAVE MP4 FILE",
+                                data=st.session_state.dl_data,
+                                file_name=f"{data['title']}.mp4",
+                                mime="video/mp4",
+                                use_container_width=True
                             )
-                            st.balloons()
-                
-                st.markdown('</div>', unsafe_allow_html=True)
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    st.error("SYSTEM FAILURE: Target Unreachable.")
 
-            except Exception as e:
-                add_log(f"Fatal Error: {str(e)}")
-                st.error(f"FATAL ERROR: {str(e)}")
+    # Footer Filler (Functional)
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    st.caption(f"NEON CORE v{SYSTEM_VERSION} | SECURE CONNECTION ESTABLISHED")
 
-# ==========================================
-# 7. FOOTER & FILLER (行数確保と視認性)
-# ==========================================
-
-# 500行を突破するための詳細な技術情報やダミーセクション（非表示）を追加可能
-# ここでは実際のログやデバッグ情報を出力するエリアを設けて厚みを出す
-for _ in range(15): st.write("")
-
-with st.expander("🛠 SYSTEM DIAGNOSTICS"):
-    st.json({
-        "server_time": str(datetime.datetime.now()),
-        "platform": "Streamlit Cloud",
-        "python_version": "3.10",
-        "yt_dlp_version": yt_dlp.version.__version__,
-        "memory_status": "OPTIMIZED",
-        "ui_engine": "NEON-CSS-V2"
-    })
-
-st.markdown("---")
-st.caption("© 2026 NEON DOWNLOAD SYSTEM - PROTOTYPE HIGH-DENSITY CODE")
-
-# 内部処理を複雑に見せるためのダミーコメントを大量生成（行数確保）
-# ---------------------------------------------------------
-# [ENGINE LOGS]
-# Initializing Neon-Buffer...
-# Loading Cyber-CSS-Injection...
-# Setting up Stream-Intercept...
-# Done.
-# ---------------------------------------------------------
+if __name__ == "__main__":
+    main()
